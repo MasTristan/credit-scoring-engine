@@ -1,7 +1,7 @@
 """ML Credit Scoring Engine — Streamlit application.
 
-Four tabs: Individual Scorer, Portfolio Analysis, Model Performance,
-About this model.
+Six tabs: Individual Scorer, Portfolio Analysis, Model Performance,
+Methodology, Governance, About this model.
 
 Run locally:
     streamlit run streamlit_app.py
@@ -19,6 +19,14 @@ import plotly.graph_objects as go
 import streamlit as st
 from sklearn.metrics import precision_recall_curve, roc_curve
 
+from src.calibration import apply_calibrator, assess_calibration, fit_isotonic
+from src.cost_analysis import (
+    CostInputs,
+    confusion_at_threshold,
+    portfolio_pnl,
+    sweep_thresholds,
+)
+from src.counterfactuals import find_counterfactual
 from src.data_prep import build_feature_matrix
 from src.explain import (
     compute_shap_values,
@@ -26,6 +34,7 @@ from src.explain import (
     get_global_importance,
     get_waterfall_data,
 )
+from src.fairness import fairness_summary
 from src.predict import (
     align_features,
     load_feature_names,
@@ -34,6 +43,7 @@ from src.predict import (
     score_to_rating,
     score_to_risk_band,
 )
+from src.reason_codes import format_adverse_action_block, top_negative_reasons
 
 # --------------------------------------------------------------------------
 # Constants
@@ -112,12 +122,20 @@ with st.sidebar:
 # Tabs
 # --------------------------------------------------------------------------
 
-tab_scorer, tab_portfolio, tab_model, tab_methodology, tab_about = st.tabs(
+(
+    tab_scorer,
+    tab_portfolio,
+    tab_model,
+    tab_methodology,
+    tab_governance,
+    tab_about,
+) = st.tabs(
     [
         "Individual Scorer",
         "Portfolio Analysis",
         "Model Performance",
         "Methodology",
+        "Governance",
         "About this model",
     ]
 )
@@ -244,6 +262,41 @@ with tab_scorer:
             "Red bars push the prediction towards default. Green bars push it "
             "away. Bar length = magnitude of impact on the model output."
         )
+
+        # --- Reason codes (GDPR Art. 22 plain-language explanation) -------
+        st.markdown("### Reason codes")
+        reasons = top_negative_reasons(waterfall, top_n=3)
+        block = format_adverse_action_block(reasons)
+        st.code(block, language="text")
+        st.caption(
+            "Auto-generated from the top-3 positive SHAP contributors. "
+            "Copy-paste into an adverse-action notice. See docs/REGULATORY_MAPPING.md."
+        )
+
+        # --- Counterfactual ----------------------------------------------
+        st.markdown("### Counterfactual explanation")
+        st.caption(
+            "What single change in the applicant's profile would bring the "
+            "PD below 15%?"
+        )
+        cf = find_counterfactual(model, raw_row, feature_names, threshold=0.15)
+        if cf is None:
+            if pd_value < 0.15:
+                st.success(
+                    "This applicant is already below the 15% risk threshold; "
+                    "no counterfactual needed."
+                )
+            else:
+                st.info(
+                    "No single-feature change in the actionable feature set "
+                    "would push this applicant below 15%. A 2-feature search "
+                    "or policy override would be needed."
+                )
+        else:
+            st.success(
+                f"**{cf.description}** → predicted PD drops from "
+                f"{pd_value:.1%} to {cf.new_pd:.1%}."
+            )
 
 
 # --------------------------------------------------------------------------
@@ -437,6 +490,56 @@ with tab_model:
         height=400,
     )
     st.plotly_chart(fig, width="stretch")
+
+    st.subheader("Cost-sensitive evaluation")
+    st.caption(
+        "Translate the confusion matrix into a euro-denominated P&L. "
+        "Move the sliders to reflect your portfolio economics; the threshold "
+        "auto-tunes to maximise net P&L."
+    )
+    cc1, cc2, cc3 = st.columns(3)
+    margin = cc1.number_input(
+        "Margin per correctly approved good (€)", 0, 1000, 120, 10,
+        help="Net interest margin on a performing loan",
+    )
+    fn_cost = cc2.number_input(
+        "Cost of a false negative (€)", 0, 20000, 3000, 100,
+        help="Unpaid exposure × LGD on an accepted defaulter",
+    )
+    fp_cost = cc3.number_input(
+        "Cost of a false positive (€)", 0, 1000, 120, 10,
+        help="Foregone margin on a rejected non-defaulter",
+    )
+    costs = CostInputs(margin_per_tn=margin, cost_per_fn=fn_cost, cost_per_fp=fp_cost)
+    sweep = sweep_thresholds(y_true, y_proba, costs, n_steps=101)
+    best_t = float(sweep.loc[sweep["net"].idxmax(), "threshold"])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sweep["threshold"], y=sweep["net"], mode="lines",
+        line=dict(color="#0070C0", width=2), name="Net P&L",
+    ))
+    fig.add_vline(
+        x=best_t, line_dash="dash", line_color="#FF4444",
+        annotation_text=f"Optimum @ {best_t:.2f}",
+    )
+    fig.update_layout(
+        title="Portfolio net P&L vs. decision threshold",
+        xaxis_title="Decision threshold (PD ≥ this → reject)",
+        yaxis_title="Net P&L on the 1,000-row sample (€)",
+        height=400,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    conf = confusion_at_threshold(y_true, y_proba, best_t)
+    pnl = portfolio_pnl(conf, costs)
+    cm1, cm2, cm3, cm4 = st.columns(4)
+    cm1.metric("True positives (correctly rejected)", f"{conf['tp']}")
+    cm2.metric("False negatives (accepted defaulters)", f"{conf['fn']}",
+               delta=f"-€{pnl['fn_loss']:,.0f}", delta_color="inverse")
+    cm3.metric("False positives (rejected goods)", f"{conf['fp']}",
+               delta=f"-€{pnl['fp_loss']:,.0f}", delta_color="inverse")
+    cm4.metric("Net P&L on the sample", f"€{pnl['net']:,.0f}")
 
     st.subheader("Full metrics")
     st.dataframe(
@@ -711,7 +814,227 @@ three on the hold-out test set.
 
 
 # --------------------------------------------------------------------------
-# Tab 5 — About
+# Tab 5 — Governance (business case, calibration, fairness, monitoring)
+# --------------------------------------------------------------------------
+
+with tab_governance:
+    st.header("Governance & model risk")
+    st.caption(
+        "The artefacts a model validator, an internal auditor, or a "
+        "regulator would expect to see alongside the model itself. "
+        "Every panel is backed by a markdown document in `docs/`."
+    )
+
+    gov_section = st.radio(
+        "Section",
+        [
+            "Business case",
+            "Calibration",
+            "Fairness audit",
+            "Cost-sensitive thresholding",
+            "Monitoring (mock-up)",
+            "Documents",
+        ],
+        horizontal=True,
+    )
+
+    scored = score_sample("xgb-v1", tuple(feature_names))
+    y_true_sample = scored["IS_DEFAULT_TRUE"].astype(int).values
+    y_proba_sample = scored["PD"].values
+
+    if gov_section == "Business case":
+        st.subheader("€ impact per 100k-contract annual book")
+        st.markdown(
+            """
+            Replacing a baseline logistic scorecard (Gini ≈ 0.50) with the
+            XGBoost model (Gini = 0.558) on a portfolio of **100,000 active
+            contracts** with an **average exposure of €5,000** is expected to
+            reduce annual credit losses by **€1.0 – €1.4 million** at the
+            same approval rate, with a payback period of **under 6 months**
+            against a build cost of approximately **€180 k**.
+            """
+        )
+        bc = pd.DataFrame(
+            {
+                "Scenario": ["Pessimistic (-30%)", "Base case", "Optimistic (+30%)"],
+                "Annual loss reduction": ["€700,000", "€1,000,000", "€1,400,000"],
+                "Net annual P&L": ["€631,000", "€931,000", "€1,331,000"],
+                "Payback": ["≈ 4 months", "≈ 2.3 months", "≈ 1.6 months"],
+            }
+        ).set_index("Scenario")
+        st.dataframe(bc, width="stretch")
+        st.caption(
+            "Full assumptions and sensitivities in `docs/BUSINESS_CASE.md`."
+        )
+
+    elif gov_section == "Calibration":
+        st.subheader("Reliability diagram")
+        st.caption(
+            "Predicted PDs (quantile-binned) against observed default rate. "
+            "A perfectly calibrated model lies on the y=x diagonal."
+        )
+        result = assess_calibration(y_true_sample, y_proba_sample, n_bins=10)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=[0, 1], y=[0, 1], mode="lines",
+            line=dict(color="gray", dash="dash"), name="Perfect calibration",
+        ))
+        fig.add_trace(go.Scatter(
+            x=result.bins["mean_predicted"],
+            y=result.bins["observed_rate"],
+            mode="markers+lines",
+            marker=dict(size=10, color="#0070C0"),
+            name="Raw model",
+            text=[f"n={n}" for n in result.bins["n"]],
+        ))
+
+        if st.checkbox("Apply isotonic recalibration", value=False):
+            iso = fit_isotonic(y_true_sample, y_proba_sample)
+            y_recal = apply_calibrator(iso, y_proba_sample)
+            result_recal = assess_calibration(y_true_sample, y_recal, n_bins=10)
+            fig.add_trace(go.Scatter(
+                x=result_recal.bins["mean_predicted"],
+                y=result_recal.bins["observed_rate"],
+                mode="markers+lines",
+                marker=dict(size=10, color="#00B050"),
+                name="Recalibrated",
+            ))
+
+        fig.update_layout(
+            xaxis=dict(title="Predicted PD (bin mean)", range=[0, 1]),
+            yaxis=dict(title="Observed default rate", range=[0, 1]),
+            height=450,
+        )
+        st.plotly_chart(fig, width="stretch")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Brier score", f"{result.brier:.4f}")
+        c2.metric("Reliability ↓", f"{result.reliability:.4f}")
+        c3.metric("Resolution ↑", f"{result.resolution:.4f}")
+        c4.metric("Uncertainty", f"{result.uncertainty:.4f}")
+        st.caption(
+            "Murphy decomposition: Brier = Reliability − Resolution + Uncertainty. "
+            "Lower reliability ⇒ better calibrated. Higher resolution ⇒ "
+            "better discrimination. See `src/calibration.py`."
+        )
+
+    elif gov_section == "Fairness audit":
+        st.subheader("Disparate-impact ratios & per-group AUC")
+        st.caption(
+            "Audit on SEX, AGE band, and EDUCATION. Disparate-impact (DI) "
+            "ratio is the selection rate vs. the largest reference group; "
+            "the four-fifths rule considers DI ∈ [0.80, 1.25] acceptable. "
+            "Audit threshold is the trained model's Youden-J cut-off."
+        )
+
+        scored_features = scored.rename(columns={"IS_DEFAULT_TRUE": "IS_DEFAULT"})
+        feat_full = build_feature_matrix(scored_features)
+        audit_df = feat_full[["SEX_MALE", "AGE"]].copy()
+        audit_df["EDUCATION"] = scored_features["EDUCATION"].values
+
+        threshold = float(metrics.get("threshold_optimal", 0.5))
+        summary = fairness_summary(audit_df, y_true_sample, y_proba_sample, threshold)
+
+        for attr, sub in summary.items():
+            st.markdown(f"**{attr}**")
+            display = sub[
+                [
+                    "group", "n", "base_rate", "selection_rate",
+                    "tpr", "fpr", "auc", "di_ratio", "eod", "reference",
+                ]
+            ].copy()
+            for col in ["base_rate", "selection_rate", "tpr", "fpr", "auc", "di_ratio", "eod"]:
+                display[col] = display[col].map(
+                    lambda v: f"{v:.3f}" if pd.notna(v) else "—"
+                )
+            st.dataframe(display.set_index("group"), width="stretch")
+
+        st.caption(
+            "Audit code in `src/fairness.py`. For an EU production deployment, "
+            "`SEX_MALE` would be removed from the feature set and the audit "
+            "re-run against correlated proxies."
+        )
+
+    elif gov_section == "Cost-sensitive thresholding":
+        st.subheader("Live threshold optimisation in € per the sample")
+        st.markdown(
+            "See the **Model Performance** tab → *Cost-sensitive evaluation* "
+            "for the interactive sliders. The optimal threshold trades off "
+            "false-negative losses (accepted defaulters) against "
+            "false-positive losses (foregone margin on rejected goods)."
+        )
+        costs = CostInputs()
+        sweep = sweep_thresholds(y_true_sample, y_proba_sample, costs, n_steps=51)
+        best_t = float(sweep.loc[sweep["net"].idxmax(), "threshold"])
+        st.metric("Default optimum threshold", f"{best_t:.2f}")
+        st.dataframe(
+            sweep.iloc[::5].reset_index(drop=True).round(3),
+            width="stretch",
+        )
+
+    elif gov_section == "Monitoring (mock-up)":
+        st.subheader("Production monitoring dashboard — mock-up")
+        st.caption(
+            "What the model risk team would see daily in production. "
+            "Values below are static placeholders for the static MVP; "
+            "the design is documented in `docs/MONITORING_PLAN.md`."
+        )
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Scores today", "8,412")
+        m2.metric("Approval rate", "61.3%")
+        m3.metric("p95 latency", "42 ms")
+        m4.metric("Availability (30d)", "100.0%")
+
+        st.markdown("**Drift**")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Max PSI (PAY_0)", "0.08", "✓")
+        d2.metric("Max CSI (PD)", "0.04", "✓")
+        d3.metric("Features in alert", "0", "✓")
+
+        st.markdown("**Performance (30-day rolling, label-mature)**")
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Gini", "0.541", "vs. 0.40 floor")
+        p2.metric("KS", "0.421", "vs. 0.25 floor")
+        p3.metric("Brier", "0.182", "vs. 0.20 alert")
+
+        st.markdown("**Fairness (last month)**")
+        f1, f2, f3, f4 = st.columns(4)
+        f1.metric("DI(sex)", "1.04", "✓")
+        f2.metric("AUC(<30)", "0.74")
+        f3.metric("AUC(30-45)", "0.76")
+        f4.metric("AUC(>45)", "0.77")
+
+        st.success("● No active alerts.")
+
+    elif gov_section == "Documents":
+        st.subheader("Governance artefacts")
+        st.caption(
+            "Every link below points to a markdown document in this repo's "
+            "`docs/` folder. These are the artefacts a model risk committee "
+            "or a regulator would request."
+        )
+        docs_table = pd.DataFrame(
+            [
+                ("Business case",        "docs/BUSINESS_CASE.md",            "€ impact, payback, sensitivities"),
+                ("Personas & user stories", "docs/PERSONAS_AND_USER_STORIES.md", "Who uses what, acceptance criteria"),
+                ("RACI",                 "docs/RACI.md",                     "Stakeholder map, decision rights"),
+                ("Process flow",         "docs/PROCESS_FLOW.md",             "BPMN — where the model sits"),
+                ("Roadmap",              "docs/ROADMAP.md",                  "Phased delivery MVP → v1 → v2"),
+                ("Regulatory mapping",   "docs/REGULATORY_MAPPING.md",       "Basel III, GDPR, EU AI Act, SR 11-7"),
+                ("Model card",           "docs/MODEL_CARD.md",               "Intended use, limitations, citation"),
+                ("Risk register",        "docs/RISK_REGISTER.md",            "Top 20 model risks with mitigations"),
+                ("Data dictionary",      "docs/DATA_DICTIONARY.md",          "Features, lineage, ownership"),
+                ("Monitoring plan",      "docs/MONITORING_PLAN.md",          "PSI / CSI / calibration cadence"),
+                ("A/B test design",      "docs/AB_TEST_DESIGN.md",           "Champion-challenger pre-registration"),
+                ("Glossary",             "docs/GLOSSARY.md",                 "Plain-language definitions"),
+            ],
+            columns=["Artefact", "Path", "Summary"],
+        ).set_index("Artefact")
+        st.dataframe(docs_table, width="stretch")
+
+
+# --------------------------------------------------------------------------
+# Tab 6 — About
 # --------------------------------------------------------------------------
 
 with tab_about:
