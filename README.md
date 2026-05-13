@@ -9,9 +9,7 @@ XGBoost credit-scoring model with full SHAP explainability — individual
 scorer, portfolio analysis, and model performance dashboard. Trained on the
 UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 
-> **Live demo**: deploy this repo to
-> [Streamlit Community Cloud](https://share.streamlit.io) and the URL
-> appears here.
+> **Live demo**: https://tm-credit-scoring-engine.streamlit.app/
 
 ---
 
