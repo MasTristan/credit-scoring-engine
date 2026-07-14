@@ -21,6 +21,20 @@ class CostInputs:
     cost_per_fn: float = 3000.0    # € loss on an accepted contract that defaults
     cost_per_fp: float = 120.0     # € foregone margin on a rejected good
     cost_per_tp: float = 0.0       # € — no incremental cost on a correctly rejected bad
+    cost_per_review: float = 50.0  # € manual-underwriting cost per grey-zone case
+
+
+def breakeven_pd(costs: CostInputs) -> float:
+    """PD at which accepting and declining a contract have equal expected value.
+
+    Accept EV = (1-PD)·margin - PD·cost_fn ; decline EV = -(1-PD)·cost_fp.
+    Below this PD accepting is profitable, above it declining is. This is the
+    cost-driven counterpart of the risk-target band cut-offs.
+    """
+    denom = costs.margin_per_tn + costs.cost_per_fp + costs.cost_per_fn
+    if denom <= 0:
+        return 0.0
+    return (costs.margin_per_tn + costs.cost_per_fp) / denom
 
 
 def confusion_at_threshold(
@@ -83,3 +97,57 @@ def optimal_threshold(
     """Threshold maximising portfolio net P&L."""
     sweep = sweep_thresholds(y_true, y_proba, costs, n_steps=n_steps)
     return float(sweep.loc[sweep["net"].idxmax(), "threshold"])
+
+
+def policy_pnl(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    approve_below: float,
+    decline_at_or_above: float,
+    costs: CostInputs,
+    review_effectiveness: float = 0.5,
+) -> dict[str, float]:
+    """Euro P&L of the three-tier decision policy.
+
+    - Auto-approve band: accepted → performing goods earn ``margin_per_tn``,
+      defaulters cost ``cost_per_fn``.
+    - Auto-decline band: rejected → declined goods cost ``cost_per_fp`` (foregone
+      margin); declined defaulters are avoided at no cost.
+    - Manual-review band: each case costs ``cost_per_review``; a reviewer of
+      effectiveness ``e`` in [0, 1] catches a fraction ``e`` of the defaulters
+      (e = 0 rubber-stamps and approves all, e = 1 is a perfect underwriter),
+      while performing goods are approved and earn margin either way.
+
+    ``review_effectiveness`` makes the value of the human layer explicit: the
+    review band only pays off when caught FN losses exceed the handling cost.
+    """
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(y_proba, dtype=float)
+    e = float(np.clip(review_effectiveness, 0.0, 1.0))
+
+    appr = p < approve_below
+    dec = p >= decline_at_or_above
+    rev = ~appr & ~dec
+
+    appr_goods = int(((y == 0) & appr).sum())
+    appr_bads = int(((y == 1) & appr).sum())
+    dec_goods = int(((y == 0) & dec).sum())
+    rev_goods = int(((y == 0) & rev).sum())
+    rev_bads = int(((y == 1) & rev).sum())
+    n_review = int(rev.sum())
+
+    approve_pnl = appr_goods * costs.margin_per_tn - appr_bads * costs.cost_per_fn
+    decline_pnl = -dec_goods * costs.cost_per_fp
+    review_pnl = (
+        rev_goods * costs.margin_per_tn
+        - (1.0 - e) * rev_bads * costs.cost_per_fn
+        - n_review * costs.cost_per_review
+    )
+    return {
+        "approve_pnl": float(approve_pnl),
+        "decline_pnl": float(decline_pnl),
+        "review_pnl": float(review_pnl),
+        "review_cost": float(n_review * costs.cost_per_review),
+        "n_review": n_review,
+        "net": float(approve_pnl + decline_pnl + review_pnl),
+    }

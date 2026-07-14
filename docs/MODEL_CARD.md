@@ -135,6 +135,16 @@ ambiguous. This is why the model should be judged on ranking and calibration
 (AUC 0.78, ECE 0.01), plus the risk separation of these bands, rather than a raw
 confusion matrix at one threshold.
 
+**Economic view.** `src/cost_analysis.py` prices the policy in euros. The
+cost-driven break-even PD is `(margin + cost_fp) / (margin + cost_fp + cost_fn)`
+≈ 7.4% under the default assumptions (margin €120, FP €120, FN €3,000); the
+review band brackets it, which is where paying a human to make the call is
+justified. `policy_pnl` scores the three-tier rule against approving everyone
+and the best single threshold, with an explicit reviewer-effectiveness knob:
+the review tier beats a plain threshold once reviewers catch roughly 85% of the
+grey-zone defaulters, and loses below that. The Governance → *Cost-sensitive
+thresholding* panel makes this interactive.
+
 ---
 
 ## Performance metrics (hold-out test set, n = 6,000)

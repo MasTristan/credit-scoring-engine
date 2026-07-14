@@ -26,7 +26,10 @@ from src.calibration import (
 )
 from src.cost_analysis import (
     CostInputs,
+    breakeven_pd,
     confusion_at_threshold,
+    optimal_threshold,
+    policy_pnl,
     portfolio_pnl,
     sweep_thresholds,
 )
@@ -1068,20 +1071,84 @@ with tab_governance:
         )
 
     elif gov_section == "Cost-sensitive thresholding":
-        st.subheader("Live threshold optimisation in € per the sample")
+        st.subheader("Cost of the decision policy vs. a single threshold")
         st.markdown(
-            "See the **Model Performance** tab → *Cost-sensitive evaluation* "
-            "for the interactive sliders. The optimal threshold trades off "
-            "false-negative losses (accepted defaulters) against "
-            "false-positive losses (foregone margin on rejected goods)."
+            "Puts the three-tier policy on a euro footing. Set your portfolio "
+            "economics; the panel compares approving everyone, the best single "
+            "hard threshold, and the three-tier policy — and shows how much of "
+            "the policy's value depends on the manual-review layer."
         )
-        costs = CostInputs()
-        sweep = sweep_thresholds(y_true_sample, y_proba_sample, costs, n_steps=51)
-        best_t = float(sweep.loc[sweep["net"].idxmax(), "threshold"])
-        st.metric("Default optimum threshold", f"{best_t:.2f}")
-        st.dataframe(
-            sweep.iloc[::5].reset_index(drop=True).round(3),
-            width="stretch",
+        e1, e2, e3, e4 = st.columns(4)
+        margin = e1.number_input("Margin / good (€)", 0, 1000, 120, 10)
+        fn_cost = e2.number_input("False negative (€)", 0, 20000, 3000, 100)
+        fp_cost = e3.number_input("False positive (€)", 0, 2000, 120, 10)
+        review_cost = e4.number_input("Manual review / case (€)", 0, 1000, 50, 10)
+        costs = CostInputs(
+            margin_per_tn=margin,
+            cost_per_fn=fn_cost,
+            cost_per_fp=fp_cost,
+            cost_per_review=review_cost,
+        )
+        review_eff = st.slider(
+            "Reviewer effectiveness (fraction of grey-zone defaulters caught)",
+            0.0, 1.0, 0.8, 0.05,
+        )
+
+        be = breakeven_pd(costs)
+        st.info(
+            f"**Break-even PD = {be:.1%}** — below it accepting is profitable, "
+            f"above it declining is. The policy's approve cut-off is "
+            f"{policy.approve_below:.0%} and its decline cut-off is "
+            f"{policy.decline_at_or_above:.0%}: the review band brackets the "
+            "break-even point, which is exactly where a human call earns its cost."
+        )
+
+        y_s, p_s = y_true_sample, y_proba_sample
+        approve_all = portfolio_pnl(
+            {"tp": 0, "fp": 0, "tn": int((y_s == 0).sum()), "fn": int((y_s == 1).sum())},
+            costs,
+        )["net"]
+        best_t = optimal_threshold(y_s, p_s, costs, n_steps=201)
+        binary = portfolio_pnl(confusion_at_threshold(y_s, p_s, best_t), costs)["net"]
+        pol_pnl = policy_pnl(
+            y_s, p_s, policy.approve_below, policy.decline_at_or_above, costs, review_eff
+        )
+
+        comp = pd.DataFrame(
+            {
+                "Strategy": [
+                    "Approve everyone (no model)",
+                    f"Best single threshold (@ {best_t:.2f})",
+                    f"Three-tier policy (review eff. {review_eff:.0%})",
+                ],
+                "Net P&L (€)": [approve_all, binary, pol_pnl["net"]],
+            }
+        )
+        fig = go.Figure(
+            go.Bar(
+                x=comp["Net P&L (€)"],
+                y=comp["Strategy"],
+                orientation="h",
+                marker_color=["#999999", "#0070C0", "#00B050"],
+                text=[f"€{v:,.0f}" for v in comp["Net P&L (€)"]],
+                textposition="outside",
+            )
+        )
+        fig.update_layout(
+            title="Net P&L on the 1,000-row sample",
+            xaxis_title="€ (higher is better)",
+            height=260,
+            yaxis=dict(autorange="reversed"),
+            margin=dict(l=10, r=80, t=50, b=40),
+        )
+        st.plotly_chart(fig, width="stretch")
+
+        st.markdown(
+            f"The manual-review tier handles **{pol_pnl['n_review']} cases** at "
+            f"**€{pol_pnl['review_cost']:,.0f}**. Slide reviewer effectiveness to "
+            "0 (rubber-stamp) and the policy loses to a plain threshold; above "
+            "roughly 0.85 it wins — that break-even is the business case for the "
+            "human layer, not a modelling opinion."
         )
 
     elif gov_section == "Monitoring (mock-up)":

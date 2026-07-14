@@ -2,8 +2,10 @@ import numpy as np
 
 from src.cost_analysis import (
     CostInputs,
+    breakeven_pd,
     confusion_at_threshold,
     optimal_threshold,
+    policy_pnl,
     portfolio_pnl,
     sweep_thresholds,
 )
@@ -49,3 +51,28 @@ def test_optimal_threshold_in_unit_interval():
     y_proba = rng.uniform(0, 1, size=200)
     t = optimal_threshold(y_true, y_proba, CostInputs())
     assert 0.0 <= t <= 1.0
+
+
+def test_breakeven_pd_formula_and_monotonicity():
+    costs = CostInputs(margin_per_tn=120, cost_per_fn=3000, cost_per_fp=120)
+    assert abs(breakeven_pd(costs) - 240 / 3240) < 1e-9
+    # a costlier false negative pushes the break-even PD down (decline sooner)
+    costlier_fn = CostInputs(margin_per_tn=120, cost_per_fn=6000, cost_per_fp=120)
+    assert breakeven_pd(costlier_fn) < breakeven_pd(costs)
+
+
+def test_policy_pnl_breakdown_sums_and_review_effectiveness():
+    rng = np.random.default_rng(3)
+    p = rng.uniform(0, 1, size=2000)
+    y = rng.binomial(1, p)
+    costs = CostInputs()
+    r = policy_pnl(y, p, 0.14, 0.365, costs, review_effectiveness=0.5)
+    # net is the sum of the three band contributions
+    assert abs(r["net"] - (r["approve_pnl"] + r["decline_pnl"] + r["review_pnl"])) < 1e-6
+    assert r["review_cost"] == r["n_review"] * costs.cost_per_review
+    # a better reviewer never lowers net P&L (catches more defaulters)
+    nets = [
+        policy_pnl(y, p, 0.14, 0.365, costs, review_effectiveness=e)["net"]
+        for e in (0.0, 0.5, 1.0)
+    ]
+    assert nets[0] <= nets[1] <= nets[2]
