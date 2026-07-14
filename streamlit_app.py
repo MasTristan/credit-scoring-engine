@@ -32,6 +32,7 @@ from src.cost_analysis import (
 )
 from src.counterfactuals import find_counterfactual
 from src.data_prep import build_feature_matrix
+from src.decision_policy import APPROVE, DECLINE, REVIEW, evaluate_policy, load_policy
 from src.explain import (
     compute_shap_values,
     get_explainer,
@@ -77,7 +78,8 @@ def load_artifacts():
     feature_names = load_feature_names(MODELS_DIR / "feature_names.json")
     with open(MODELS_DIR / "training_metrics.json") as f:
         metrics = json.load(f)
-    return model, explainer, feature_names, metrics
+    policy = load_policy(MODELS_DIR / "decision_policy.json")
+    return model, explainer, feature_names, metrics, policy
 
 
 @st.cache_data
@@ -96,10 +98,11 @@ def score_sample(_model_id: str, feature_names: tuple[str, ...]) -> pd.DataFrame
     df["PD"] = predict_proba(model, X)
     df["RATING"] = df["PD"].apply(score_to_rating)
     df["RISK_BAND"] = df["PD"].apply(score_to_risk_band)
+    df["DECISION"] = load_artifacts()[4].decide_batch(df["PD"].values)
     return df
 
 
-model, explainer, feature_names, metrics = load_artifacts()
+model, explainer, feature_names, metrics, policy = load_artifacts()
 
 
 # --------------------------------------------------------------------------
@@ -235,6 +238,27 @@ with tab_scorer:
         m2.metric("Internal rating", rating)
         m3.metric("Risk band", band)
         st.progress(min(pd_value, 1.0))
+
+        decision = policy.decide(pd_value)
+        if decision == APPROVE:
+            st.success(
+                f"**Decision: AUTO-APPROVE** — PD {pd_value:.1%} is below the "
+                f"approve cut-off ({policy.approve_below:.0%}). Low-risk, no "
+                "manual underwriting needed."
+            )
+        elif decision == DECLINE:
+            st.error(
+                f"**Decision: AUTO-DECLINE** — PD {pd_value:.1%} is at or above "
+                f"the decline cut-off ({policy.decline_at_or_above:.0%}). "
+                "High-risk, clear reject."
+            )
+        else:
+            st.warning(
+                f"**Decision: MANUAL REVIEW** — PD {pd_value:.1%} sits in the grey "
+                f"zone ({policy.approve_below:.0%}–{policy.decline_at_or_above:.0%}). "
+                "The model defers to a human underwriter rather than force a "
+                "binary call. See the reason codes below."
+            )
 
         # SHAP waterfall
         shap_vals = compute_shap_values(explainer, X_one)
@@ -837,6 +861,7 @@ with tab_governance:
         "Section",
         [
             "Business case",
+            "Decision policy",
             "Calibration",
             "Fairness audit",
             "Cost-sensitive thresholding",
@@ -873,6 +898,76 @@ with tab_governance:
         st.dataframe(bc, width="stretch")
         st.caption(
             "Full assumptions and sensitivities in `docs/BUSINESS_CASE.md`."
+        )
+
+    elif gov_section == "Decision policy":
+        st.subheader("Three-tier decision policy")
+        st.markdown(
+            f"""
+            A single hard threshold forces a binary accept/reject on every
+            applicant, including the large middle band where the model is
+            genuinely uncertain — that is what inflates the false-positive count.
+            Origination instead auto-decides only the confident tails and sends
+            the grey zone to a human:
+
+            - **Auto-approve** when PD < **{policy.approve_below:.0%}**
+            - **Manual review** when **{policy.approve_below:.0%} ≤ PD < {policy.decline_at_or_above:.0%}**
+            - **Auto-decline** when PD ≥ **{policy.decline_at_or_above:.0%}**
+
+            Both cut-offs are fit on the validation split from risk targets
+            (approved band ≤ 8% default, declined band ≥ 60%), never on test.
+            """
+        )
+
+        table = evaluate_policy(y_true_sample, y_proba_sample, policy)
+        disp = table.copy()
+        disp["decision"] = disp["decision"].map(
+            {APPROVE: "Auto-approve", REVIEW: "Manual review", DECLINE: "Auto-decline"}
+        )
+        disp["share"] = (disp["share"] * 100).map("{:.1f}%".format)
+        disp["default_rate"] = (disp["default_rate"] * 100).map("{:.1f}%".format)
+        disp = disp.rename(
+            columns={
+                "decision": "Decision",
+                "n": "Contracts",
+                "share": "Share of book",
+                "default_rate": "Actual default rate",
+            }
+        ).set_index("Decision")
+        st.dataframe(disp, width="stretch")
+
+        colours = {APPROVE: "#00B050", REVIEW: "#FFC000", DECLINE: "#FF4444"}
+        fig = go.Figure(
+            go.Bar(
+                x=table["default_rate"] * 100,
+                y=[
+                    {APPROVE: "Auto-approve", REVIEW: "Manual review", DECLINE: "Auto-decline"}[d]
+                    for d in table["decision"]
+                ],
+                orientation="h",
+                marker_color=[colours[d] for d in table["decision"]],
+                text=[f"{r*100:.1f}%" for r in table["default_rate"]],
+                textposition="outside",
+            )
+        )
+        fig.add_vline(
+            x=y_true_sample.mean() * 100,
+            line=dict(color="gray", dash="dash"),
+            annotation_text=f"portfolio {y_true_sample.mean():.1%}",
+        )
+        fig.update_layout(
+            title="Actual default rate by decision band (public sample)",
+            xaxis_title="Default rate (%)",
+            height=280,
+            yaxis=dict(autorange="reversed"),
+            margin=dict(l=10, r=60, t=50, b=40),
+        )
+        st.plotly_chart(fig, width="stretch")
+        st.caption(
+            "The auto-decided tails are far from the portfolio average; the "
+            "review band is where the model is honestly uncertain. This is why a "
+            "raw false-positive count at one threshold is the wrong lens on the "
+            "model."
         )
 
     elif gov_section == "Calibration":

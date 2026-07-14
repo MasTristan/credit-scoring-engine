@@ -17,9 +17,16 @@ UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 
 - **Individual Scorer**, enter a borrower's profile and get a probability
   of default, an internal rating (Project 1 mapping AAA/AA → D), a risk band
-  (LOW/MEDIUM/HIGH), a SHAP waterfall of the 15 most influential features,
+  (LOW/MEDIUM/HIGH), a **three-tier decision** (auto-approve / manual review /
+  auto-decline), a SHAP waterfall of the 15 most influential features,
   **plain-language reason codes** (GDPR Art. 22), and a **counterfactual
   explanation** showing the smallest change that would flip the decision.
+- **Decision policy**, instead of one hard threshold, two PD cut-offs fit on
+  validation split applicants into auto-approve (PD < 14%, ~9% default),
+  manual review (the grey zone), and auto-decline (PD ≥ 36%, ~59% default).
+  The confident tails are auto-decided; the uncertain middle goes to a human,
+  which is how origination actually works and why a raw false-positive count at
+  a single threshold is the wrong lens on the model.
 - **Portfolio Analysis**, load 1,000 contracts from the public hold-out
   sample, score the batch and visualise PD distribution, scatter against
   credit limit, breakdown by current repayment status, and global SHAP

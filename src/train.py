@@ -35,6 +35,7 @@ from sklearn.metrics import (
 )
 
 from src.calibration import brier_decomposition, expected_calibration_error
+from src.decision_policy import evaluate_policy, fit_policy, save_policy
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
@@ -191,6 +192,13 @@ def main() -> None:
     threshold = youden_threshold(y_val.values, val_proba)
     print(f"threshold (Youden J on val): {threshold:.4f}")
 
+    # Three-tier decision policy, also fit on validation.
+    policy = fit_policy(y_val.values, val_proba)
+    print(
+        f"decision policy: approve < {policy.approve_below:.3f} "
+        f"| decline >= {policy.decline_at_or_above:.3f}"
+    )
+
     y_proba = model.predict_proba(X_test)[:, 1]
     metrics = compute_metrics(
         y_train, y_val, y_test, y_proba, threshold, feature_names
@@ -211,6 +219,10 @@ def main() -> None:
     feature_importance_table(model, feature_names).to_csv(
         MODELS_DIR / "feature_importance.csv", index=False
     )
+
+    save_policy(policy, MODELS_DIR / "decision_policy.json")
+    print("decision policy on test set:")
+    print(evaluate_policy(y_test.values, y_proba, policy).to_string(index=False))
 
     background = stratified_sample(X_train, y_train, n=500)
     background.to_parquet(MODELS_DIR / "shap_background.parquet", index=False)

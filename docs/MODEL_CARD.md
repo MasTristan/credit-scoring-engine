@@ -110,7 +110,30 @@ See `src/data_prep.py`. In summary:
   natural distribution keeps the PDs calibrated (see the Calibration section).
 - **Loss**: binary cross-entropy, second-order Taylor approximation per
   XGBoost.
-- **Decision threshold**: Youden-J optimal on the validation set.
+- **Decision threshold**: Youden-J optimal on the validation set, reported as a
+  reference operating point. The shipped decision rule is the three-tier policy
+  below, not this single cut-off.
+
+### Decision policy (three tiers)
+
+A single hard threshold forces a binary accept/reject on every applicant,
+including the large middle band where the model is genuinely uncertain, which is
+what produces an unconvincing false-positive count. The model instead auto-
+decides only the confident tails and refers the grey zone to a human underwriter:
+
+| Band | Rule | Share (test) | Actual default rate |
+|------|------|-------------:|--------------------:|
+| Auto-approve | PD < 0.14 | 45.9% | 8.7% |
+| Manual review | 0.14 ≤ PD < 0.365 | 36.8% | 21.6% |
+| Auto-decline | PD ≥ 0.365 | 17.3% | 58.8% |
+
+Both cut-offs are fit on the validation split from interpretable risk targets
+(approved band default rate ≤ 8%, declined band ≥ 60%), never on test, and are
+stored in `models/decision_policy.json`. The auto-decided tails sit far from the
+22% portfolio average; the review band is where discrimination is genuinely
+ambiguous. This is why the model should be judged on ranking and calibration
+(AUC 0.78, ECE 0.01), plus the risk separation of these bands, rather than a raw
+confusion matrix at one threshold.
 
 ---
 
