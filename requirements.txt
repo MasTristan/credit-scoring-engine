@@ -1,8 +1,11 @@
-xgboost>=2.0.0
-shap>=0.44.0
-streamlit>=1.35.0
-pandas>=2.0.0
-numpy>=1.26.0
-scikit-learn>=1.4.0
-plotly>=5.20.0
-pyarrow>=14.0.0
+# Pinned to a proven-compatible set. The xgboost/shap pair in particular must
+# stay in lockstep: newer xgboost serialises base_score as "[5E-1]", which some
+# shap releases fail to parse (ValueError: could not convert string to float).
+xgboost==3.2.0
+shap==0.51.0
+streamlit==1.59.2
+pandas==3.0.3
+numpy==2.4.6
+scikit-learn==1.9.0
+plotly==6.9.0
+pyarrow==24.0.0
