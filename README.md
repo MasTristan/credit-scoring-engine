@@ -43,6 +43,9 @@ UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
   remedy), fairness audit (DI / EOD / per-group AUC) on SEX, AGE band, and
   EDUCATION, monitoring-dashboard mock-up, and links to the full governance
   pack in `docs/`.
+- **Bilingual UI**, an English / French language toggle in the sidebar
+  (`src/i18n.py`) translates the whole interface; the maths derivations in the
+  Methodology tab stay in English.
 
 ---
 
