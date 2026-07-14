@@ -26,7 +26,11 @@ def load_feature_names(path: str | Path = FEATURE_NAMES_PATH) -> list[str]:
 
 
 def align_features(X: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
-    """Add missing columns (as 0) and order columns as the model expects."""
+    """Add missing columns (as 0) and order columns as the model expects.
+
+    Does not mutate the caller's DataFrame.
+    """
+    X = X.copy()
     for col in feature_names:
         if col not in X.columns:
             X[col] = 0
