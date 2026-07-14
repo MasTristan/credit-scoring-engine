@@ -103,11 +103,11 @@ See `src/data_prep.py`. In summary:
   n_estimators=500, max_depth=6, learning_rate=0.05,
   subsample=0.8, colsample_bytree=0.8, min_child_weight=5,
   gamma=0.1, reg_alpha=0.1, reg_lambda=1.0,
-  scale_pos_weight=n_neg/n_pos, early_stopping_rounds=50,
+  early_stopping_rounds=50,
   eval_metric=["auc","aucpr"], random_state=42
   ```
-- **Class imbalance**: handled with `scale_pos_weight ≈ 3.52`, not
-  by resampling.
+- **Class imbalance**: not re-weighted and not resampled. Training on the
+  natural distribution keeps the PDs calibrated (see the Calibration section).
 - **Loss**: binary cross-entropy, second-order Taylor approximation per
   XGBoost.
 - **Decision threshold**: Youden-J optimal on the validation set.
@@ -118,17 +118,29 @@ See `src/data_prep.py`. In summary:
 
 | Metric            | Value  | Benchmark (consumer credit) |
 |-------------------|--------|------------------------------|
-| ROC-AUC           | 0.780  | ≥ 0.72                       |
-| Gini              | 0.560  | ≥ 0.44                       |
+| ROC-AUC           | 0.781  | ≥ 0.72                       |
+| Gini              | 0.561  | ≥ 0.44                       |
 | KS statistic      | 0.426  | ≥ 0.35                       |
-| PR-AUC            | 0.555  | varies with default rate     |
-| Brier score       | 0.177  | lower is better              |
-| Log-loss          | 0.536  | lower is better              |
-| Precision @ J     | 0.498  |                              |
-| Recall @ J        | 0.596  |                              |
-| F1 @ J            | 0.543  |                              |
+| PR-AUC            | 0.557  | varies with default rate     |
+| Brier score       | 0.135  | lower is better              |
+| Log-loss          | 0.429  | lower is better              |
+| ECE (10 bins)     | 0.010  | lower is better              |
+| Precision @ J     | 0.484  |                              |
+| Recall @ J        | 0.603  |                              |
+| F1 @ J            | 0.537  |                              |
 
 The Methodology tab in the app explains each metric in plain language.
+
+### Calibration
+
+The model is trained on the natural class distribution (no `scale_pos_weight`,
+no resampling), so the predicted PDs are calibrated as long-run default
+frequencies: mean predicted PD 0.221 against a 0.221 observed base rate, ECE
+0.010, reliability (Murphy) ≈ 0.0001. An earlier `scale_pos_weight = n_neg /
+n_pos ≈ 3.5` inflated every PD to roughly twice the base rate (ECE 0.19) with
+no ranking benefit; a post-hoc isotonic recalibration was also benchmarked and
+did not improve validation calibration over the native model, so neither is
+used in the shipped pipeline.
 
 ### Performance by sub-group
 
@@ -136,12 +148,12 @@ See `src/fairness.py` and the Governance tab. At time of writing, the
 disparate-impact ratio on `SEX` is within the [0.8, 1.25] regulator-
 acceptable band; AUC is consistent across age bands within ±0.02.
 
-### Calibration
+### Calibration monitoring
 
-The raw model output is **not calibrated** as a long-run frequency
-(`scale_pos_weight` shifts predicted PDs upward). Isotonic recalibration
-is implemented in `src/calibration.py` and rendered in the Governance
-tab; for production this would be the operational PD.
+The shipped model is calibrated out of the box (see the Calibration section
+above). `src/calibration.py` additionally provides a reliability diagram and an
+isotonic recalibrator, rendered in the Governance tab, kept as the operational
+remedy if monitoring detects calibration drift.
 
 ---
 
@@ -174,9 +186,9 @@ tab; for production this would be the operational PD.
 - **No reject inference**: training data contains only accepted
   contracts; the model under-estimates risk on the rejected-applicant
   tail.
-- **Calibration**: raw output is over-confident on the default class
-  due to `scale_pos_weight`. Use the calibrated PD for any
-  loss-provisioning or pricing use.
+- **Calibration**: PDs are calibrated as long-run frequencies (test ECE
+  0.010), so they can be used directly for loss-provisioning or pricing;
+  monitor for drift and recalibrate if the reliability diagram degrades.
 
 ---
 

@@ -87,6 +87,21 @@ def brier_decomposition(
     return brier, reliability, resolution, uncertainty
 
 
+def expected_calibration_error(
+    y_true: np.ndarray, y_proba: np.ndarray, n_bins: int = 10
+) -> float:
+    """Expected Calibration Error over equal-frequency bins.
+
+    Weighted mean absolute gap between predicted PD and observed default rate.
+    0 = perfectly calibrated. This is the headline calibration metric reported
+    in the model card.
+    """
+    table = reliability_table(y_true, y_proba, n_bins=n_bins)
+    n = len(np.asarray(y_true))
+    weights = table["n"] / n
+    return float((weights * (table["mean_predicted"] - table["observed_rate"]).abs()).sum())
+
+
 def assess_calibration(
     y_true: np.ndarray, y_proba: np.ndarray, n_bins: int = 10
 ) -> CalibrationResult:

@@ -55,27 +55,31 @@ streamlit_app.py
 - Handles mixed numeric / boolean inputs with no pre-scaling.
 - `tree_method="hist"` is 5–10× faster than the exact tree builder and is
   the default for XGBoost ≥ 2.x.
-- Single-file JSON serialisation — easy to ship in a public repo and load
+- Single-file JSON serialisation, easy to ship in a public repo and load
   on Streamlit Community Cloud without any extra storage layer.
 - Native SHAP support through `TreeExplainer`.
 
-### Class imbalance via `scale_pos_weight`
+### Class imbalance left untouched (calibrated PDs)
 
-The default rate is 22.12%. Setting
-`scale_pos_weight = n_neg / n_pos ≈ 3.52` raises the gradient contribution
-of positive (default) examples without resampling. This preserves the
-empirical class prior and avoids the leakage risks of SMOTE-style synthetic
-oversampling.
+The default rate is 22.12%. The model trains on the natural class
+distribution: no `scale_pos_weight` and no resampling. This keeps the
+predicted PDs calibrated as long-run default frequencies (test ECE ≈ 0.01),
+which is the point of a PD model. Re-weighting the positive class
+(`scale_pos_weight = n_neg / n_pos ≈ 3.52`) was benchmarked and rejected: it
+inflated every PD to roughly twice the base rate without improving ranking,
+and a post-hoc isotonic pass did not beat the native model on validation.
 
-### Stratified 80/20 split (not temporal)
+### Stratified 60/20/20 split (not temporal)
 
 The UCI dataset only contains six consecutive months of repayment history
 and a single forward-looking target ("default next month"). It has no
-contract-issue date, so a meaningful train/test split must be random. The
-split is stratified on `IS_DEFAULT` (seed = 42), preserving the 22.12%
-default rate in both folds. The original project brief targeted Lending
-Club 2015–2018 with a temporal train = 2015–2017 / test = 2018 split; that
-intent is documented in `CLAUDE.md`.
+contract-issue date, so a meaningful split must be random. The split is
+stratified on `IS_DEFAULT` (seed = 42), preserving the 22.12% default rate
+across train, validation, and test. Early stopping and the operating
+threshold are fixed on validation; the test set is scored once. The original
+project brief targeted Lending Club 2015–2018 with a temporal
+train = 2015–2017 / test = 2018 split; that intent is documented in
+`CLAUDE.md`.
 
 ### SHAP `tree_path_dependent`
 
@@ -155,12 +159,12 @@ construction (one function, two callers).
 
 - The training data is Taiwanese credit-card data from 2005; the model
   must be recalibrated before being applied to any other population.
-- Six months of payment history is short — `PAY_0` and `PAY_MAX` dominate
+- Six months of payment history is short, `PAY_0` and `PAY_MAX` dominate
   the global feature importance.
-- The probability output is **not calibrated** to long-run frequencies
-  (using `scale_pos_weight` shifts the predicted PD upwards relative to
-  the empirical rate). Isotonic or Platt calibration would be the next
-  step for an operational deployment.
+- The probability output **is** calibrated to long-run frequencies (test
+  ECE ≈ 0.01) because the model trains on the natural distribution; the
+  remaining calibration risk is drift over time, monitored via the
+  reliability diagram with isotonic recalibration held in reserve.
 - No reject inference: the dataset only contains accepted contracts, so
   the model inherits the original lender's selection bias.
 

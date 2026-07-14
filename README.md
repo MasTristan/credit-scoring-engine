@@ -31,10 +31,11 @@ UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 - **Methodology**, recruiter-facing tab with the maths behind XGBoost and
   SHAP, justified technical choices, and "what I would do next in
   production".
-- **Governance**, business case, reliability diagram with one-click
-  isotonic recalibration, fairness audit (DI / EOD / per-group AUC) on
-  SEX, AGE band, and EDUCATION, monitoring-dashboard mock-up, and links
-  to the full governance pack in `docs/`.
+- **Governance**, business case, reliability diagram showing the model is
+  calibrated by construction (ECE ≈ 0.01, isotonic overlay kept as a drift
+  remedy), fairness audit (DI / EOD / per-group AUC) on SEX, AGE band, and
+  EDUCATION, monitoring-dashboard mock-up, and links to the full governance
+  pack in `docs/`.
 
 ---
 
@@ -42,16 +43,25 @@ UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 
 | Metric        | Value  | Benchmark (consumer credit) |
 |---------------|--------|------------------------------|
-| ROC-AUC       | 0.780  | ≥ 0.72                       |
-| Gini          | 0.560  | ≥ 0.44                       |
+| ROC-AUC       | 0.781  | ≥ 0.72                       |
+| Gini          | 0.561  | ≥ 0.44                       |
 | KS statistic  | 0.426  | ≥ 0.35                       |
-| PR-AUC        | 0.555  | varies with default rate     |
-| Brier score   | 0.177  | lower is better              |
+| PR-AUC        | 0.557  | varies with default rate     |
+| Brier score   | 0.135  | lower is better              |
+| ECE           | 0.010  | lower is better              |
 
 Model selection (early stopping) and the operating threshold are fixed on a
 dedicated validation split; the test set is scored once, so these figures are
 an unbiased out-of-sample estimate. Split: stratified 60 / 20 / 20
 (train / validation / test, seed = 42).
+
+**Calibration.** The model trains on the natural class distribution (no
+`scale_pos_weight`, no resampling), so its predicted PDs are calibrated as
+long-run default frequencies: mean predicted PD 0.221 against a 0.221 base
+rate, ECE 0.010. Class re-weighting was benchmarked and rejected, it doubled
+every PD versus the base rate (ECE 0.19) without improving ranking, and a
+post-hoc isotonic pass did not beat the natively calibrated model on
+validation.
 
 ---
 
@@ -220,10 +230,10 @@ itself.
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Plain-language definitions for non-experts |
 
 The **Governance** tab in the Streamlit app surfaces the business case
-summary, an interactive reliability diagram (with one-click isotonic
-recalibration), the fairness audit on the public sample, the
-cost-sensitive thresholding panel, a production-monitoring dashboard
-mock-up, and the full list of governance documents.
+summary, an interactive reliability diagram (the model sits on the diagonal;
+an isotonic overlay is available as a diagnostic), the fairness audit on the
+public sample, the cost-sensitive thresholding panel, a production-monitoring
+dashboard mock-up, and the full list of governance documents.
 
 ---
 
