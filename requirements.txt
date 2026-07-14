@@ -1,15 +1,13 @@
-# Version floors, not hard pins: Streamlit Community Cloud fixes the Python
-# version at deploy time (this app runs on <= 3.10), so the deps must resolve
-# across Python versions. Two constraints matter:
-#   - shap >= 0.46 parses the bracketed base_score ("[5E-1]") emitted by
-#     xgboost >= 2.1; older shap raised "could not convert string to float".
-#   - xgboost >= 2.1 so the committed model (saved by a 3.x xgboost) loads.
-# CI exercises Python 3.10 / 3.11 / 3.12 to keep these floors honest.
-xgboost>=2.1,<4
-shap>=0.46
-streamlit>=1.35.0
-pandas>=2.0.0
-numpy>=1.26.0
-scikit-learn>=1.4.0
-plotly>=5.20.0
-pyarrow>=14.0.0
+# Pinned, reproducible set. Requires Python 3.11+ (deploy the Community Cloud
+# app on 3.11). The xgboost/shap pair must stay in lockstep: xgboost >= 3.0
+# serialises base_score as a list ("[5E-1]") and only shap >= 0.50 parses it,
+# and shap >= 0.50 itself requires Python 3.11+. On Python 3.10 this combination
+# is unsatisfiable, which is why the runtime is 3.11+.
+xgboost==3.2.0
+shap==0.51.0
+streamlit==1.59.2
+pandas==3.0.3
+numpy==2.4.6
+scikit-learn==1.9.0
+plotly==6.9.0
+pyarrow==24.0.0
