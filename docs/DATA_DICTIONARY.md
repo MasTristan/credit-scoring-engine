@@ -15,12 +15,12 @@
 | `EDUCATION`   | cat     | 1 = graduate, 2 = university, 3 = high school, 4 = other (0/5/6 → 4)   | KYC                | Annual    | DataEng | Yes | Maybe      |
 | `MARRIAGE`    | cat     | 1 = married, 2 = single, 3 = other (0 → 3)                              | KYC                | Annual    | DataEng | Yes | No         |
 | `AGE`         | int     | Age in years (derived from date of birth)                              | KYC                | Annual    | DataEng | Yes | Possibly   |
-| `PAY_0`       | int     | Repayment status — current month                                       | Billing system     | Monthly   | DataEng | No  | No         |
-| `PAY_2`..`PAY_6` | int  | Repayment status — months t-1 to t-5                                   | Billing system     | Monthly   | DataEng | No  | No         |
-| `BILL_AMT1`   | int     | Bill amount — current month (NT$)                                       | Billing system     | Monthly   | DataEng | No  | No         |
-| `BILL_AMT2..6`| int     | Bill amount — months t-1 to t-5 (NT$)                                    | Billing system     | Monthly   | DataEng | No  | No         |
-| `PAY_AMT1`    | int     | Payment made — current month (NT$)                                      | Billing system     | Monthly   | DataEng | No  | No         |
-| `PAY_AMT2..6` | int     | Payment made — months t-1 to t-5 (NT$)                                  | Billing system     | Monthly   | DataEng | No  | No         |
+| `PAY_0`       | int     | Repayment status, current month                                       | Billing system     | Monthly   | DataEng | No  | No         |
+| `PAY_2`..`PAY_6` | int  | Repayment status, months t-1 to t-5                                   | Billing system     | Monthly   | DataEng | No  | No         |
+| `BILL_AMT1`   | int     | Bill amount, current month (NT$)                                       | Billing system     | Monthly   | DataEng | No  | No         |
+| `BILL_AMT2..6`| int     | Bill amount, months t-1 to t-5 (NT$)                                    | Billing system     | Monthly   | DataEng | No  | No         |
+| `PAY_AMT1`    | int     | Payment made, current month (NT$)                                      | Billing system     | Monthly   | DataEng | No  | No         |
+| `PAY_AMT2..6` | int     | Payment made, months t-1 to t-5 (NT$)                                  | Billing system     | Monthly   | DataEng | No  | No         |
 
 ### `PAY_*` code book
 
@@ -38,8 +38,8 @@
 
 | Name             | Formula                                                                  | Why                                                                |
 |------------------|---------------------------------------------------------------------------|---------------------------------------------------------------------|
-| `PAY_MEAN`        | mean of `PAY_0..PAY_6`                                                    | Average delinquency status — smooths month-to-month noise            |
-| `PAY_MAX`         | max of `PAY_0..PAY_6`                                                     | Worst delinquency over the window — strong default predictor          |
+| `PAY_MEAN`        | mean of `PAY_0..PAY_6`                                                    | Average delinquency status, smooths month-to-month noise            |
+| `PAY_MAX`         | max of `PAY_0..PAY_6`                                                     | Worst delinquency over the window, strong default predictor          |
 | `DELINQ_COUNT`    | count of `PAY_x > 0`                                                       | Persistence of delinquency                                            |
 | `BILL_MEAN`       | mean of `BILL_AMT1..6`                                                    | Average usage of revolving credit                                     |
 | `PAY_AMT_MEAN`    | mean of `PAY_AMT1..6`                                                     | Average ability/willingness to pay                                    |
@@ -57,7 +57,7 @@
 | `EDUCATION_2..4` | one-hot from `EDUCATION`, drop_first=True |
 | `MARRIAGE_2..3`  | one-hot from `MARRIAGE`, drop_first=True   |
 
-Final feature vector has **34 columns** — see `models/feature_names.json`.
+Final feature vector has **34 columns**, see `models/feature_names.json`.
 
 ---
 
@@ -78,7 +78,7 @@ Final feature vector has **34 columns** — see `models/feature_names.json`.
 
 ```
    ┌────────────────────────────────────┐
-   │  data/raw/uci_credit_card.csv      │  (not committed — open dataset)
+   │  data/raw/uci_credit_card.csv      │  (not committed, open dataset)
    └─────────────────┬──────────────────┘
                      │
                      ▼   load_raw + clean_categoricals
@@ -97,11 +97,11 @@ Final feature vector has **34 columns** — see `models/feature_names.json`.
    │  35 columns (34 features + target)  │
    └─────────────────┬──────────────────┘
                      │
-                     ▼   train_test_split (stratified 80/20)
-   ┌──────────────────┬──────────────────┐
-   │  train.parquet   │  test.parquet    │
-   │  (24,000 rows)   │  (6,000 rows)    │
-   └──────────────────┴──────────────────┘
+                     ▼   stratified split (60 / 20 / 20, seed = 42)
+   ┌────────────────┬────────────────┬────────────────┐
+   │  train.parquet │  val.parquet   │  test.parquet  │
+   │  (18,000 rows) │  (6,000 rows)  │  (6,000 rows)  │
+   └────────────────┴────────────────┴────────────────┘
                      │
                      ▼   XGBClassifier.fit
    ┌────────────────────────────────────┐
@@ -112,7 +112,7 @@ Final feature vector has **34 columns** — see `models/feature_names.json`.
    │  models/feature_names.json          │
    └────────────────────────────────────┘
                      │
-                     ▼   (downstream — Streamlit app)
+                     ▼   (downstream, Streamlit app)
    ┌────────────────────────────────────┐
    │  PD, RATING, RISK_BAND, SHAP         │
    └────────────────────────────────────┘
@@ -140,7 +140,7 @@ Final feature vector has **34 columns** — see `models/feature_names.json`.
 | Dataset                                          | Refresh cadence | Owner   | Storage location           |
 |--------------------------------------------------|-----------------|---------|----------------------------|
 | `data/raw/uci_credit_card.csv`                    | Static (public) | DataEng | Not committed; .gitignored   |
-| `data/processed/{train,test}.parquet`             | Per training    | DataEng | Not committed; .gitignored   |
+| `data/processed/{train,val,test}.parquet`         | Per training    | DataEng | Not committed; .gitignored   |
 | `data/sample/sample_1000.csv`                     | Per training    | DataEng | Committed (public demo)      |
 | `models/*`                                       | Per training    | DataSci | Committed (public artefacts) |
 | Production inference logs (designed)              | Real-time       | DataEng | Bank's data lake             |

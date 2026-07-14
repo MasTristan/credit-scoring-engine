@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -728,12 +727,13 @@ three on the hold-out test set.
         | Choice | Alternative | Why this one |
         |---|---|---|
         | XGBoost (CPU, `tree_method=hist`) | LightGBM, CatBoost | Mature, single-file model serialisation, deterministic, well-supported by SHAP, fits on a free Streamlit instance. |
-        | Stratified 80/20 random split | Temporal split | The UCI dataset only contains 6 months of payment data and no contract issue date, so a meaningful temporal split is not available. The original Lending Club brief planned 2015-2017 train / 2018 test. |
+        | Stratified 60/20/20 train/val/test split | Temporal split | The UCI dataset only contains 6 months of payment data and no contract issue date, so a meaningful temporal split is not available. The original Lending Club brief planned 2015-2017 train / 2018 test. |
+        | Early stopping and threshold selected on validation | Selecting on test | Keeps the test set genuinely unseen, so the reported metrics are an unbiased out-of-sample estimate rather than an optimistic in-sample one. |
         | `scale_pos_weight = n_neg / n_pos` | SMOTE, random over-sampling | Preserves the empirical default rate, keeps the trained model directly interpretable as conditional probabilities, avoids the leakage risks of synthetic minority oversampling. |
         | Early stopping on `aucpr` | Fixed `n_estimators` | Cuts training time, prevents over-fit. The best iteration is logged. |
         | SHAP `TreeExplainer`, `tree_path_dependent` | `interventional`, KernelSHAP | Exact and fast for tree ensembles; satisfies the local-accuracy property by construction. |
         | Streamlit Community Cloud | Flask/FastAPI + a frontend | Zero infra, one-file deploy, free public URL, `@st.cache_resource` keeps the model warm across requests. |
-        | Parquet for train/test/background | CSV | 5–10× smaller, preserves dtypes, columnar reads. |
+        | Parquet for train/val/test/background | CSV | 5–10× smaller, preserves dtypes, columnar reads. |
         | All model artefacts committed to git | A model registry | The artefact set is small (≈1 MB) and a public repo is the cheapest registry possible. |
         """
     )
@@ -748,10 +748,10 @@ three on the hold-out test set.
             • clean categoricals (EDUCATION → {1..4}, MARRIAGE → {1..3})
             • engineer 8 features (PAY_MEAN, DELINQ_COUNT, UTILIZATION, …)
             • one-hot encode SEX / EDUCATION / MARRIAGE (drop_first)
-            • stratified 80/20 split
+            • stratified 60/20/20 train/val/test split
                        │
                        ▼
-          data/processed/{train,test}.parquet + feature_names.json
+          data/processed/{train,val,test}.parquet + feature_names.json
                        │
                        ▼
           src/train.py     (XGBoost + early stopping)
@@ -1045,7 +1045,7 @@ with tab_about:
             f"""
             **Algorithm**: XGBoost (eXtreme Gradient Boosting)
             **Training data**: UCI Default of Credit Card Clients (Taiwan, Apr–Sep 2005)
-            **Split**: stratified 80 / 20 (random, seed = 42)
+            **Split**: stratified 60 / 20 / 20 train / val / test (random, seed = 42)
             **Target**: binary default indicator (1 = default next month)
             **Features**: {metrics['n_features']} after engineering and encoding
             **Explainability**: SHAP `TreeExplainer` (Lundberg & Lee, 2017)

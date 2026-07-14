@@ -9,7 +9,7 @@
 ## TL;DR for the credit committee
 
 Replacing a baseline logistic scorecard (Gini ≈ 0.50) with the XGBoost
-model (Gini = 0.558) on a portfolio of **100,000 active contracts** with
+model (Gini = 0.560) on a portfolio of **100,000 active contracts** with
 an **average exposure of €5,000** is expected to reduce annual credit
 losses by **€1.0 – €1.4 million** without changing the approval rate,
 and to deliver a payback period of **under 6 months** against a build
@@ -98,10 +98,10 @@ annual book** depending on application mix.
 
 Most sensitive inputs (in decreasing order of impact on the NPV):
 
-1. **LGD assumption** — every +5pp on LGD adds ≈ 8% to the loss-reduction estimate.
-2. **Volume** — linear; the case scales 1-to-1.
-3. **Gini delta vs. incumbent scorecard** — every +0.05 Gini ≈ +€220 k/year.
-4. **Operating threshold** — moving the cut-off from the Youden-J point to a
+1. **LGD assumption**, every +5pp on LGD adds ≈ 8% to the loss-reduction estimate.
+2. **Volume**, linear; the case scales 1-to-1.
+3. **Gini delta vs. incumbent scorecard**, every +0.05 Gini ≈ +€220 k/year.
+4. **Operating threshold**, moving the cut-off from the Youden-J point to a
    conservative `PD ≥ 0.30` reduces FN count by ≈ 18% but increases FP count
    by ≈ 35%. Net effect depends on the margin/LGD ratio.
 
@@ -122,11 +122,11 @@ Most sensitive inputs (in decreasing order of impact on the NPV):
 
 ## 7. Out-of-scope (deliberately)
 
-- **Loss given default (LGD)** modelling — taken as a policy parameter.
-- **Exposure at default (EAD)** modelling — taken as a portfolio average.
-- **Pricing** — once the PD is known, pricing is a downstream optimisation
+- **Loss given default (LGD)** modelling, taken as a policy parameter.
+- **Exposure at default (EAD)** modelling, taken as a portfolio average.
+- **Pricing**, once the PD is known, pricing is a downstream optimisation
   problem covered by the lender's pricing engine.
-- **Collections strategy** — the model informs origination, not workout.
+- **Collections strategy**, the model informs origination, not workout.
 
 ---
 
@@ -135,12 +135,12 @@ Most sensitive inputs (in decreasing order of impact on the NPV):
 See `docs/RISK_REGISTER.md` for the full list. The two that most directly
 threaten the NPV:
 
-1. **Model drift** — the Taiwanese 2005 data is not representative of any
+1. **Model drift**, the Taiwanese 2005 data is not representative of any
    modern EU consumer-credit population. The model **must** be retrained
    on local data before going live. The €1 M/year figure is illustrative
    of the *uplift* a similar-quality model would deliver, not of this
    specific artefact.
-2. **Selection bias / reject inference** — the training data only contains
+2. **Selection bias / reject inference**, the training data only contains
    accepted contracts. Without reject inference the model under-predicts
    on the rejected-applicant tail; the loss-reduction estimate is
    optimistic by an undetermined amount.

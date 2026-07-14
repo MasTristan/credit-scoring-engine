@@ -14,7 +14,7 @@
 | Model name           | `xgboost-credit-pd-v1`                                                  |
 | Version              | 1.0.0                                                                    |
 | Release date         | 2026-05-12                                                              |
-| Model type           | Binary classifier — gradient-boosted trees (XGBoost ≥ 2.0)               |
+| Model type           | Binary classifier, gradient-boosted trees (XGBoost ≥ 2.0)               |
 | Output               | Probability of default within 1 month (range [0, 1])                     |
 | Number of features   | 34 after engineering and one-hot encoding                                |
 | Model size           | ≈ 900 KB (`models/xgboost_model.json`)                                  |
@@ -39,24 +39,24 @@ origination workflow.
 
 ### Primary users
 
-- **Credit officers** (front line) — to defend an individual decision
+- **Credit officers** (front line), to defend an individual decision
   and produce an adverse-action notice if rejected.
-- **Portfolio managers** (middle office) — to monitor PD distribution
+- **Portfolio managers** (middle office), to monitor PD distribution
   and concentration risks across a portfolio.
-- **Model validation** (second line) — for independent challenge.
-- **Internal audit** (third line) — for periodic review.
+- **Model validation** (second line), for independent challenge.
+- **Internal audit** (third line), for periodic review.
 
 ### Out-of-scope uses
 
-- **Marketing / cross-sell scoring** — the optimisation function is
+- **Marketing / cross-sell scoring**, the optimisation function is
   different (uplift, not PD).
-- **Pricing** — the lender's pricing engine should consume the PD,
+- **Pricing**, the lender's pricing engine should consume the PD,
   not be replaced by it.
-- **Collections strategy** — this is an origination model, not a
+- **Collections strategy**, this is an origination model, not a
   behavioural model on the booked book.
-- **Compliance scoring** (AML / fraud) — separate models, separate
+- **Compliance scoring** (AML / fraud), separate models, separate
   features, separate label.
-- **Decisions on populations not represented in training** — see
+- **Decisions on populations not represented in training**, see
   Limitations.
 
 ---
@@ -65,14 +65,14 @@ origination workflow.
 
 | Field                | Value                                                                   |
 |----------------------|--------------------------------------------------------------------------|
-| Source               | UCI ML Repository — *Default of Credit Card Clients*                     |
-| Provider             | Yeh, I.-C., & Lien, C.-h. (2009) — Chung Hua University, Taiwan         |
+| Source               | UCI ML Repository, *Default of Credit Card Clients*                     |
+| Provider             | Yeh, I.-C., & Lien, C.-h. (2009), Chung Hua University, Taiwan         |
 | Population           | Cash and revolving credit card clients of a Taiwanese bank               |
 | Period               | April – September 2005                                                   |
 | Size                 | 30,000 contracts                                                          |
 | Default rate         | 22.1%                                                                     |
-| Train / test split   | Stratified 80/20 (random, seed = 42)                                     |
-| Special-category data | None used — no race, religion, political opinion, health, biometric    |
+| Train/val/test split | Stratified 60/20/20 (random, seed = 42); early stopping and threshold selected on validation, test scored once |
+| Special-category data | None used, no race, religion, political opinion, health, biometric    |
 | Protected attributes  | `SEX`, `AGE` are present (audited; see Fairness section)                |
 
 ### Why this dataset
@@ -118,15 +118,15 @@ See `src/data_prep.py`. In summary:
 
 | Metric            | Value  | Benchmark (consumer credit) |
 |-------------------|--------|------------------------------|
-| ROC-AUC           | 0.779  | ≥ 0.72                       |
-| Gini              | 0.558  | ≥ 0.44                       |
-| KS statistic      | 0.434  | ≥ 0.35                       |
-| PR-AUC            | 0.561  | varies with default rate     |
-| Brier score       | 0.176  | lower is better              |
-| Log-loss          | 0.534  | lower is better              |
-| Precision @ J     | 0.512  |                              |
-| Recall @ J        | 0.595  |                              |
-| F1 @ J            | 0.550  |                              |
+| ROC-AUC           | 0.780  | ≥ 0.72                       |
+| Gini              | 0.560  | ≥ 0.44                       |
+| KS statistic      | 0.426  | ≥ 0.35                       |
+| PR-AUC            | 0.555  | varies with default rate     |
+| Brier score       | 0.177  | lower is better              |
+| Log-loss          | 0.536  | lower is better              |
+| Precision @ J     | 0.498  |                              |
+| Recall @ J        | 0.596  |                              |
+| F1 @ J            | 0.543  |                              |
 
 The Methodology tab in the app explains each metric in plain language.
 
@@ -209,5 +209,5 @@ If you use this work or this artefact:
 
 ## Contact
 
-**Tristan Mas** — Business Analyst, Risk & Finance IT
+**Tristan Mas**, Business Analyst, Risk & Finance IT
 [GitHub](https://github.com/MasTristan) · [LinkedIn](https://linkedin.com/in/tristan-mas)

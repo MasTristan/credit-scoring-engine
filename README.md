@@ -1,11 +1,11 @@
-# ML Credit Scoring Engine — XGBoost + SHAP + Streamlit
+# ML Credit Scoring Engine, XGBoost + SHAP + Streamlit
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Tests](https://img.shields.io/badge/tests-32%20passing-brightgreen.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Community%20Cloud-FF4B4B.svg)
 
-XGBoost credit-scoring model with full SHAP explainability — individual
+XGBoost credit-scoring model with full SHAP explainability, individual
 scorer, portfolio analysis, and model performance dashboard. Trained on the
 UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 
@@ -15,23 +15,23 @@ UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 
 ## Key features
 
-- **Individual Scorer** — enter a borrower's profile and get a probability
+- **Individual Scorer**, enter a borrower's profile and get a probability
   of default, an internal rating (Project 1 mapping AAA/AA → D), a risk band
   (LOW/MEDIUM/HIGH), a SHAP waterfall of the 15 most influential features,
   **plain-language reason codes** (GDPR Art. 22), and a **counterfactual
   explanation** showing the smallest change that would flip the decision.
-- **Portfolio Analysis** — load 1,000 contracts from the public hold-out
+- **Portfolio Analysis**, load 1,000 contracts from the public hold-out
   sample, score the batch and visualise PD distribution, scatter against
   credit limit, breakdown by current repayment status, and global SHAP
   importance.
-- **Model Performance** — KPI row from the training run, ROC and PR
+- **Model Performance**, KPI row from the training run, ROC and PR
   curves, score distribution by actual outcome (KS plot), full metrics
   table, and an interactive **cost-sensitive thresholding** panel that
   turns the confusion matrix into a euro-denominated P&L.
-- **Methodology** — recruiter-facing tab with the maths behind XGBoost and
+- **Methodology**, recruiter-facing tab with the maths behind XGBoost and
   SHAP, justified technical choices, and "what I would do next in
   production".
-- **Governance** — business case, reliability diagram with one-click
+- **Governance**, business case, reliability diagram with one-click
   isotonic recalibration, fairness audit (DI / EOD / per-group AUC) on
   SEX, AGE band, and EDUCATION, monitoring-dashboard mock-up, and links
   to the full governance pack in `docs/`.
@@ -42,11 +42,16 @@ UCI *Default of Credit Card Clients* dataset (Taiwan, 2005).
 
 | Metric        | Value  | Benchmark (consumer credit) |
 |---------------|--------|------------------------------|
-| ROC-AUC       | 0.779  | ≥ 0.72                       |
-| Gini          | 0.558  | ≥ 0.44                       |
-| KS statistic  | 0.434  | ≥ 0.35                       |
-| PR-AUC        | 0.561  | varies with default rate     |
-| Brier score   | 0.176  | lower is better              |
+| ROC-AUC       | 0.780  | ≥ 0.72                       |
+| Gini          | 0.560  | ≥ 0.44                       |
+| KS statistic  | 0.426  | ≥ 0.35                       |
+| PR-AUC        | 0.555  | varies with default rate     |
+| Brier score   | 0.177  | lower is better              |
+
+Model selection (early stopping) and the operating threshold are fixed on a
+dedicated validation split; the test set is scored once, so these figures are
+an unbiased out-of-sample estimate. Split: stratified 60 / 20 / 20
+(train / validation / test, seed = 42).
 
 ---
 
@@ -132,13 +137,13 @@ pytest tests/ -v
 
 | Field          | Value                                                            |
 |----------------|------------------------------------------------------------------|
-| Source         | UCI ML Repository — *Default of Credit Card Clients Data Set*    |
+| Source         | UCI ML Repository, *Default of Credit Card Clients Data Set*    |
 | Period         | April–September 2005, Taiwan                                     |
 | Rows           | 30,000                                                           |
 | Raw features   | 23 explanatory + 1 binary target                                 |
 | Final features | 34 after engineering and one-hot encoding                        |
 | Default rate   | 22.12%                                                           |
-| Split          | Stratified 80 / 20 (random, seed = 42)                           |
+| Split          | Stratified 60 / 20 / 20 train / val / test (random, seed = 42)   |
 
 The original project brief targeted the Lending Club 2015–2018 dataset,
 which Kaggle removed. The UCI Taiwan dataset is the standard freely
@@ -199,7 +204,7 @@ itself.
 
 | Artefact | What it answers |
 |---|---|
-| [`docs/BUSINESS_CASE.md`](docs/BUSINESS_CASE.md) | Why fund this — € loss reduction, payback, sensitivities |
+| [`docs/BUSINESS_CASE.md`](docs/BUSINESS_CASE.md) | Why fund this, € loss reduction, payback, sensitivities |
 | [`docs/PERSONAS_AND_USER_STORIES.md`](docs/PERSONAS_AND_USER_STORIES.md) | Who uses it, with explicit acceptance criteria |
 | [`docs/RACI.md`](docs/RACI.md) | Who is Accountable / Responsible / Consulted / Informed |
 | [`docs/PROCESS_FLOW.md`](docs/PROCESS_FLOW.md) | Where the model sits in the origination workflow |
@@ -222,11 +227,11 @@ mock-up, and the full list of governance documents.
 
 ## Author
 
-**Tristan Mas** — Business Analyst, Risk & Finance IT
+**Tristan Mas**, Business Analyst, Risk & Finance IT
 [GitHub](https://github.com/MasTristan) · [LinkedIn](https://linkedin.com/in/tristan-mas)
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

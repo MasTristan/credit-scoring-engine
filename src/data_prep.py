@@ -2,6 +2,7 @@
 
 Input  : data/raw/uci_credit_card.csv
 Output : data/processed/train.parquet
+         data/processed/val.parquet
          data/processed/test.parquet
          data/processed/feature_names.json
          data/sample/sample_1000.csv
@@ -101,6 +102,38 @@ def split_train_test(
     return train.reset_index(drop=True), test.reset_index(drop=True)
 
 
+def split_train_val_test(
+    df: pd.DataFrame,
+    test_size: float = 0.2,
+    val_size: float = 0.2,
+    seed: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Stratified three-way split (train / validation / test).
+
+    ``test_size`` and ``val_size`` are fractions of the *whole* dataset. The
+    test set is held out first and never touched during training or model
+    selection; the validation set drives early stopping and threshold
+    selection. The original index is preserved (no reset) so callers can map
+    rows back to the raw frame.
+    """
+    if not 0 < test_size < 1 or not 0 < val_size < 1 or test_size + val_size >= 1:
+        raise ValueError("test_size and val_size must be in (0, 1) and sum to < 1.")
+    train_val, test = train_test_split(
+        df,
+        test_size=test_size,
+        stratify=df["IS_DEFAULT"],
+        random_state=seed,
+    )
+    val_fraction_of_remainder = val_size / (1.0 - test_size)
+    train, val = train_test_split(
+        train_val,
+        test_size=val_fraction_of_remainder,
+        stratify=train_val["IS_DEFAULT"],
+        random_state=seed,
+    )
+    return train, val, test
+
+
 def build_sample(raw_df: pd.DataFrame, test_idx: pd.Index, n: int = 1000) -> pd.DataFrame:
     """Build a public sample from the raw test set (raw features + IS_DEFAULT_TRUE)."""
     sample = raw_df.loc[test_idx].sample(n=min(n, len(test_idx)), random_state=42)
@@ -123,30 +156,25 @@ def main() -> None:
 
     features = build_feature_matrix(raw)
 
-    train, test = split_train_test(features)
-    train_raw_idx = train.index
+    # Index is preserved through feature engineering, so the split indices map
+    # straight back to the raw rows.
+    train, val, test = split_train_val_test(features)
     test_raw_idx = test.index
 
     feature_names = [c for c in features.columns if c != "IS_DEFAULT"]
     print(f"  n_features: {len(feature_names)}")
     print(f"  train: {len(train)} ({train['IS_DEFAULT'].mean():.4f} default)")
+    print(f"  val  : {len(val)} ({val['IS_DEFAULT'].mean():.4f} default)")
     print(f"  test : {len(test)} ({test['IS_DEFAULT'].mean():.4f} default)")
 
-    train.to_parquet(PROCESSED_DIR / "train.parquet", index=False)
-    test.to_parquet(PROCESSED_DIR / "test.parquet", index=False)
+    train.reset_index(drop=True).to_parquet(PROCESSED_DIR / "train.parquet", index=False)
+    val.reset_index(drop=True).to_parquet(PROCESSED_DIR / "val.parquet", index=False)
+    test.reset_index(drop=True).to_parquet(PROCESSED_DIR / "test.parquet", index=False)
     with open(PROCESSED_DIR / "feature_names.json", "w") as f:
         json.dump(feature_names, f, indent=2)
 
-    # Build public sample from the underlying raw rows that ended up in test.
-    # We re-run the split on the raw frame with the same seed to recover the
-    # test indices in raw space.
-    raw_train, raw_test = train_test_split(
-        raw,
-        test_size=0.2,
-        stratify=raw["IS_DEFAULT"],
-        random_state=42,
-    )
-    sample = build_sample(raw, raw_test.index, n=1000)
+    # Public sample = exactly the raw rows held out in the test split.
+    sample = build_sample(raw, test_raw_idx, n=1000)
     sample.to_csv(SAMPLE_DIR / "sample_1000.csv", index=False)
     print(f"  sample_1000.csv: {sample.shape}")
 

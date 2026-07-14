@@ -6,6 +6,7 @@ from src.data_prep import (
     clean_categoricals,
     engineer_features,
     split_train_test,
+    split_train_val_test,
 )
 
 
@@ -79,3 +80,26 @@ def test_train_test_stratified_split_preserves_default_rate():
     assert len(train) + len(test) == len(feat)
     # stratified: rates should match within 2 pp
     assert abs(train["IS_DEFAULT"].mean() - test["IS_DEFAULT"].mean()) < 0.02
+
+
+def test_train_val_test_split_is_disjoint_and_covers_all():
+    feat = build_feature_matrix(_toy_raw(n=1000))
+    train, val, test = split_train_val_test(feat, test_size=0.2, val_size=0.2)
+    # partition: no overlap, full coverage
+    idx_train, idx_val, idx_test = set(train.index), set(val.index), set(test.index)
+    assert idx_train.isdisjoint(idx_val)
+    assert idx_train.isdisjoint(idx_test)
+    assert idx_val.isdisjoint(idx_test)
+    assert len(idx_train | idx_val | idx_test) == len(feat)
+    # proportions ~ 60 / 20 / 20 of the whole
+    assert abs(len(test) / len(feat) - 0.2) < 0.02
+    assert abs(len(val) / len(feat) - 0.2) < 0.02
+
+
+def test_train_val_test_split_rejects_invalid_sizes():
+    feat = build_feature_matrix(_toy_raw(n=200))
+    try:
+        split_train_val_test(feat, test_size=0.6, val_size=0.6)
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for sizes summing to >= 1")

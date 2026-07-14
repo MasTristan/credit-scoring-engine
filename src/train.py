@@ -1,11 +1,17 @@
 """Train the XGBoost credit-scoring model.
 
-Input  : data/processed/train.parquet, data/processed/test.parquet
+Input  : data/processed/train.parquet, data/processed/val.parquet,
+         data/processed/test.parquet
 Output : models/xgboost_model.json
          models/feature_importance.csv
          models/shap_background.parquet
          models/training_metrics.json
          models/feature_names.json (copy)
+
+Methodology: early stopping and the operating threshold are selected on the
+validation split. The test split is held out and only scored once, for the
+final reported metrics, so those metrics are an unbiased estimate of
+out-of-sample performance.
 """
 
 from __future__ import annotations
@@ -32,16 +38,21 @@ PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
 
 
-def load_split() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, list[str]]:
+def load_split() -> tuple[
+    pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, list[str]
+]:
     train = pd.read_parquet(PROCESSED_DIR / "train.parquet")
+    val = pd.read_parquet(PROCESSED_DIR / "val.parquet")
     test = pd.read_parquet(PROCESSED_DIR / "test.parquet")
     with open(PROCESSED_DIR / "feature_names.json") as f:
         feature_names = json.load(f)
     X_train = train[feature_names]
     y_train = train["IS_DEFAULT"].astype(int)
+    X_val = val[feature_names]
+    y_val = val["IS_DEFAULT"].astype(int)
     X_test = test[feature_names]
     y_test = test["IS_DEFAULT"].astype(int)
-    return X_train, y_train, X_test, y_test, feature_names
+    return X_train, y_train, X_val, y_val, X_test, y_test, feature_names
 
 
 def build_params(y_train: pd.Series) -> dict:
@@ -80,13 +91,20 @@ def youden_threshold(y_true: np.ndarray, y_proba: np.ndarray) -> float:
 
 def compute_metrics(
     y_train: pd.Series,
+    y_val: pd.Series,
     y_test: pd.Series,
     y_proba: np.ndarray,
+    threshold: float,
     feature_names: list[str],
 ) -> dict:
+    """Metrics on the held-out test set.
+
+    ``threshold`` is the operating point chosen on the validation split, so
+    precision/recall/f1 reflect a decision rule fixed before seeing the test
+    set (no threshold tuning on test).
+    """
     roc_auc = float(roc_auc_score(y_test, y_proba))
     pr_auc = float(average_precision_score(y_test, y_proba))
-    threshold = youden_threshold(y_test.values, y_proba)
     y_pred = (y_proba >= threshold).astype(int)
     return {
         "roc_auc": roc_auc,
@@ -95,16 +113,17 @@ def compute_metrics(
         "ks_statistic": ks_statistic(y_test.values, y_proba),
         "brier_score": float(brier_score_loss(y_test, y_proba)),
         "log_loss": float(log_loss(y_test, y_proba)),
-        "threshold_optimal": threshold,
+        "threshold_optimal": float(threshold),
         "precision": float(precision_score(y_test, y_pred, zero_division=0)),
         "recall": float(recall_score(y_test, y_pred, zero_division=0)),
         "f1": float(f1_score(y_test, y_pred, zero_division=0)),
         "n_train": int(len(y_train)),
+        "n_val": int(len(y_val)),
         "n_test": int(len(y_test)),
         "default_rate_train": float(y_train.mean()),
         "default_rate_test": float(y_test.mean()),
         "n_features": len(feature_names),
-        "training_date": dt.datetime.utcnow().strftime("%Y-%m-%d"),
+        "training_date": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"),
     }
 
 
@@ -142,23 +161,31 @@ def stratified_sample(
 
 def main() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    X_train, y_train, X_test, y_test, feature_names = load_split()
-    print(f"train: {X_train.shape}, test: {X_test.shape}")
+    X_train, y_train, X_val, y_val, X_test, y_test, feature_names = load_split()
+    print(f"train: {X_train.shape}, val: {X_val.shape}, test: {X_test.shape}")
 
     params = build_params(y_train)
     print(f"scale_pos_weight = {params['scale_pos_weight']:.4f}")
 
     model = xgb.XGBClassifier(**params)
+    # Early stopping is driven by the validation set; the test set stays unseen.
     model.fit(
         X_train,
         y_train,
-        eval_set=[(X_test, y_test)],
+        eval_set=[(X_val, y_val)],
         verbose=False,
     )
     print(f"best iteration: {model.best_iteration}")
 
+    # Operating threshold chosen on validation, then applied to test.
+    val_proba = model.predict_proba(X_val)[:, 1]
+    threshold = youden_threshold(y_val.values, val_proba)
+    print(f"threshold (Youden J on val): {threshold:.4f}")
+
     y_proba = model.predict_proba(X_test)[:, 1]
-    metrics = compute_metrics(y_train, y_test, y_proba, feature_names)
+    metrics = compute_metrics(
+        y_train, y_val, y_test, y_proba, threshold, feature_names
+    )
     print("Metrics on test set:")
     for k, v in metrics.items():
         if isinstance(v, float):
