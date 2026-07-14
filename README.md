@@ -1,8 +1,8 @@
 # ML Credit Scoring Engine, XGBoost + SHAP + Streamlit
 
+![CI](https://github.com/MasTristan/credit-scoring-engine/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Tests](https://img.shields.io/badge/tests-32%20passing-brightgreen.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Community%20Cloud-FF4B4B.svg)
 
 XGBoost credit-scoring model with full SHAP explainability, individual
@@ -98,7 +98,7 @@ LendingClubCreditScoring/
 │   ├── cost_analysis.py          - euro-denominated P&L sweep
 │   └── reason_codes.py           - GDPR Art. 22 adverse-action text
 ├── streamlit_app.py              - the application
-└── tests/                        - 32 pytest tests
+└── tests/                        - 34 pytest tests
 ```
 
 ---
@@ -125,9 +125,11 @@ python -m src.data_prep
 python -m src.train
 ```
 
-To run the test suite:
+To run the test suite (and the linter), install the dev dependencies first:
 
 ```bash
+pip install -r requirements-dev.txt
+ruff check src tests streamlit_app.py
 pytest tests/ -v
 ```
 
@@ -192,7 +194,7 @@ tests/test_reason_codes.py     - adverse-action notice generation
 tests/test_counterfactuals.py  - counterfactual search on the trained model
 ```
 
-`pytest tests/ -v` → **32 passed**.
+`pytest tests/ -v` → **34 passed**.
 
 ---
 
