@@ -1,7 +1,7 @@
 # ML Credit Scoring Engine, XGBoost + SHAP + Streamlit
 
 ![CI](https://github.com/MasTristan/credit-scoring-engine/actions/workflows/ci.yml/badge.svg)
-![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Community%20Cloud-FF4B4B.svg)
 
