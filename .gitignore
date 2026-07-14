@@ -30,3 +30,11 @@ Thumbs.db
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AI instruction files — never committed to a public repo
+CLAUDE.md
+CLAUDE.local.md
+PLAN.md
+IMPROVEMENTS.md
+.claude/
+docs/internal/
